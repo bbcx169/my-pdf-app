@@ -1,0 +1,21 @@
+# OS / cloud sync
+Desktop.ini
+.DS_Store
+*.tmp
+~$*
+
+# secrets
+.env
+.env.*
+*.key
+credentials.*
+*service-account*.json
+
+# local editor/cache
+.vscode/
+.windsurf/cache/
+.windsurf/logs/
+
+# Node
+node_modules/
+dist/
