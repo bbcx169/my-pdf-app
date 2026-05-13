@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF 萬能工具箱 - 隱私安全本地版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        .page-card:hover .actions { opacity: 1; }
+        .spinner { border: 3px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .drag-over { border-color: #4f46e5 !important; background-color: #f5f3ff !important; }
+        .btn-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col font-sans">
+
+    <!-- 導航欄 -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="bg-red-500 p-2 rounded-xl">
+                <i data-lucide="file-text" class="text-white w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">PDF 萬能工具箱</h1>
+                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">純瀏覽器本地處理</p>
+            </div>
+        </div>
+        <button onclick="document.getElementById('fileInput').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl transition-all font-semibold flex items-center gap-2 shadow-md">
+            <i data-lucide="plus" class="w-5 h-5"></i> 上傳 PDF
+        </button>
+        <input type="file" id="fileInput" multiple accept=".pdf" class="hidden">
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+        <!-- 左側面板 -->
+        <aside class="w-80 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 overflow-y-auto shrink-0">
+            <section>
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <i data-lucide="scissors" class="w-4 h-4"></i> 分割與選取
+                </h3>
+                <div class="flex flex-col gap-2">
+                    <button id="btnOdd" onclick="applyFilter('odd')" class="btn-ctrl w-full text-left px-4 py-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50 hover:text-indigo-700 transition-all text-sm font-medium">只選取單數頁</button>
+                    <button id="btnEven" onclick="applyFilter('even')" class="btn-ctrl w-full text-left px-4 py-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50 hover:text-indigo-700 transition-all text-sm font-medium">只選取偶數頁</button>
+                    <button id="btnAll" onclick="applyFilter('all')" class="btn-ctrl w-full text-left px-4 py-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-all text-sm font-medium">選取全部</button>
+                    <div class="mt-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <p class="text-[10px] font-bold text-slate-500 mb-2 uppercase">範圍擷取 (如 1, 3-5)</p>
+                        <div class="flex gap-2">
+                            <input type="text" id="rangeInput" placeholder="頁碼..." class="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                            <button onclick="applyFilter('range')" class="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm">套用</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <i data-lucide="combine" class="w-4 h-4"></i> 合併與輸出
+                </h3>
+                <div class="flex flex-col gap-3">
+                    <button id="btnMergeSelected" onclick="handleMerge(true)" class="btn-ctrl bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-emerald-100 flex items-center justify-center gap-2">
+                        <i data-lucide="layers" class="w-5 h-5"></i> 合併選中項
+                    </button>
+                    <button id="btnMergeAll" onclick="handleMerge(false)" class="btn-ctrl bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                        <i data-lucide="download" class="w-5 h-5"></i> 全部直接合併
+                    </button>
+                    <button id="btnSplit" onclick="handleSplit()" class="btn-ctrl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                        <i data-lucide="unfold-more" class="w-5 h-5"></i> 拆分為單頁文件
+                    </button>
+                </div>
+            </section>
+        </aside>
+
+        <!-- 主工作區 (支援拖放) -->
+        <main class="flex-1 p-8 overflow-y-auto bg-slate-100 transition-colors duration-200" id="workspace">
+            <div id="emptyState" class="h-full flex flex-col items-center justify-center text-slate-400 border-4 border-dashed border-slate-200 rounded-[2.5rem] bg-white/50 pointer-events-none">
+                <i data-lucide="upload-cloud" class="w-16 h-16 mb-4 opacity-20"></i>
+                <p class="text-xl font-bold text-slate-600">請上傳或拖放 PDF 檔案至此</p>
+                <p class="text-sm mt-2">檔案僅在本地處理，不會外流</p>
+            </div>
+            <div id="grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 hidden"></div>
+        </main>
+    </div>
+
+    <!-- 載入中遮罩 -->
+    <div id="loader" class="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex flex-col items-center justify-center z-50 hidden">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4">
+            <div class="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p id="loaderText" class="font-bold text-slate-800">正在處理 PDF...</p>
+        </div>
+    </div>
+
+    <script>
+        // 設定 PDF.js Worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let workspacePages = [];
+        const workspace = document.getElementById('workspace');
+
+        lucide.createIcons();
+        updateButtonStates();
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            handleFiles(Array.from(e.target.files));
+            e.target.value = '';
+        });
+
+        workspace.addEventListener('dragover', (e) => { e.preventDefault(); workspace.classList.add('drag-over'); });
+        workspace.addEventListener('dragleave', (e) => { e.preventDefault(); workspace.classList.remove('drag-over'); });
+        workspace.addEventListener('drop', (e) => {
+            e.preventDefault();
+            workspace.classList.remove('drag-over');
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+            handleFiles(files);
+        });
+
+        // 核心檔案處理邏輯
+        async function handleFiles(files) {
+            if (!files.length) return;
+            showLoader(true, "讀取檔案中...");
+            for (const file of files) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    // 使用 slice(0) 確保不會因為 PDFLib 讀取而導致原始 buffer 被分離
+                    const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer.slice(0));
+                    const pageCount = pdfDoc.getPageCount();
+                    const fileId = Math.random().toString(36).substr(2, 9);
+                    
+                    for (let i = 0; i < pageCount; i++) {
+                        // 每次生成縮圖時也使用 slice(0) 傳遞副本給 pdf.js
+                        const thumbnail = await generateThumbnail(new Uint8Array(arrayBuffer.slice(0)), i);
+                        workspacePages.push({
+                            id: Math.random().toString(36).substr(2, 9),
+                            fileId, 
+                            fileName: file.name, 
+                            pageIndex: i, 
+                            thumbnail,
+                            selected: true, 
+                            buffer: arrayBuffer // 原始 buffer 儲存在此供後續合併使用
+                        });
+                    }
+                } catch (e) { console.error("處理檔案出錯:", e); }
+            }
+            renderWorkspace();
+            showLoader(false);
+        }
+
+        async function generateThumbnail(data, pageIdx) {
+            // 注意：pdfjsLib 讀取資料後可能會分離傳入的 ArrayBuffer
+            const pdf = await pdfjsLib.getDocument({ data }).promise;
+            const page = await pdf.getPage(pageIdx + 1);
+            const viewport = page.getViewport({ scale: 0.3 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport }).promise;
+            const dataUrl = canvas.toDataURL();
+            // 銷毀 pdf 物件釋放資源
+            await pdf.destroy();
+            return dataUrl;
+        }
+
+        function renderWorkspace() {
+            const grid = document.getElementById('grid');
+            const empty = document.getElementById('emptyState');
+            if (workspacePages.length === 0) {
+                grid.classList.add('hidden'); empty.classList.remove('hidden');
+            } else {
+                grid.classList.remove('hidden'); empty.classList.add('hidden');
+                grid.innerHTML = '';
+                workspacePages.forEach((page, idx) => {
+                    const card = document.createElement('div');
+                    card.className = `page-card relative bg-white rounded-2xl shadow-sm border-2 transition-all p-3 ${page.selected ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-transparent'}`;
+                    card.innerHTML = `
+                        <div class="actions absolute top-2 left-2 right-2 flex justify-between opacity-0 transition-opacity z-10">
+                            <button onclick="togglePage('${page.id}')" class="p-1.5 rounded-lg bg-white shadow-md text-${page.selected ? 'indigo-600' : 'slate-400'}">
+                                <i data-lucide="${page.selected ? 'check-square' : 'square'}" class="w-5 h-5"></i>
+                            </button>
+                            <button onclick="removePage('${page.id}')" class="p-1.5 rounded-lg bg-red-500 text-white shadow-md">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div class="aspect-[1/1.4] bg-slate-50 rounded-lg overflow-hidden border border-slate-100 mb-3 cursor-pointer" onclick="togglePage('${page.id}')">
+                            <img src="${page.thumbnail}" class="w-full h-full object-contain">
+                        </div>
+                        <div class="flex items-center justify-between px-1">
+                            <div class="overflow-hidden"><p class="text-[9px] text-slate-400 truncate">${page.fileName}</p><p class="text-xs font-black">第 ${page.pageIndex + 1} 頁</p></div>
+                            <div class="flex gap-1">
+                                <button onclick="move(${idx}, -1)" class="p-1 hover:bg-slate-100 rounded" ${idx === 0 ? 'disabled' : ''}><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                                <button onclick="move(${idx}, 1)" class="p-1 hover:bg-slate-100 rounded" ${idx === workspacePages.length-1 ? 'disabled' : ''}><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+                lucide.createIcons();
+            }
+            updateButtonStates();
+        }
+
+        function togglePage(id) {
+            const p = workspacePages.find(p => p.id === id);
+            p.selected = !p.selected;
+            renderWorkspace();
+        }
+
+        function removePage(id) {
+            workspacePages = workspacePages.filter(p => p.id !== id);
+            renderWorkspace();
+        }
+
+        function move(idx, dir) {
+            const target = idx + dir;
+            if (target >= 0 && target < workspacePages.length) {
+                [workspacePages[idx], workspacePages[target]] = [workspacePages[target], workspacePages[idx]];
+                renderWorkspace();
+            }
+        }
+
+        function updateButtonStates() {
+            const hasPages = workspacePages.length > 0;
+            const hasSelected = workspacePages.some(p => p.selected);
+            document.querySelectorAll('.btn-ctrl').forEach(btn => {
+                if (btn.id === 'btnMergeSelected' || btn.id === 'btnSplit') {
+                    btn.classList.toggle('btn-disabled', !hasSelected);
+                } else {
+                    btn.classList.toggle('btn-disabled', !hasPages);
+                }
+            });
+        }
+
+        function applyFilter(type) {
+            if (type === 'odd') workspacePages.forEach(p => p.selected = (p.pageIndex + 1) % 2 !== 0);
+            else if (type === 'even') workspacePages.forEach(p => p.selected = (p.pageIndex + 1) % 2 === 0);
+            else if (type === 'all') workspacePages.forEach(p => p.selected = true);
+            else if (type === 'range') {
+                const val = document.getElementById('rangeInput').value;
+                const set = new Set();
+                val.split(',').forEach(r => {
+                    if (r.includes('-')) {
+                        const [s, e] = r.split('-').map(Number);
+                        if(!isNaN(s) && !isNaN(e)) for(let i=s; i<=e; i++) set.add(i);
+                    } else {
+                        const n = Number(r.trim()); if(!isNaN(n) && n > 0) set.add(n);
+                    }
+                });
+                workspacePages.forEach(p => p.selected = set.has(p.pageIndex + 1));
+            }
+            renderWorkspace();
+        }
+
+        // --- 合併邏輯 ---
+        async function handleMerge(onlySelected) {
+            const targets = onlySelected ? workspacePages.filter(p => p.selected) : [...workspacePages];
+            
+            if (targets.length === 0) {
+                return alert(workspacePages.length === 0 ? "工作區沒有檔案，請先上傳" : "尚未選取任何頁面");
+            }
+
+            showLoader(true, `正在合併 ${targets.length} 個頁面...`);
+            try {
+                const mergedPdf = await PDFLib.PDFDocument.create();
+                const cache = {};
+                for (const p of targets) {
+                    if (!cache[p.fileId]) {
+                        // 使用 slice(0) 確保多次合併時 buffer 依然可用
+                        cache[p.fileId] = await PDFLib.PDFDocument.load(p.buffer.slice(0));
+                    }
+                    const sourceDoc = cache[p.fileId];
+                    const [copied] = await mergedPdf.copyPages(sourceDoc, [p.pageIndex]);
+                    mergedPdf.addPage(copied);
+                }
+                const bytes = await mergedPdf.save();
+                download(bytes, `merged_${Date.now()}.pdf`);
+            } catch (e) { 
+                console.error(e);
+                alert("合併過程出錯，請檢查 PDF 是否有加密保護"); 
+            }
+            showLoader(false);
+        }
+
+        async function handleSplit() {
+            const targets = workspacePages.filter(p => p.selected);
+            if (!targets.length) return alert("請先選取頁面");
+            showLoader(true, "拆分檔案中...");
+            try {
+                for (const p of targets) {
+                    const single = await PDFLib.PDFDocument.create();
+                    const src = await PDFLib.PDFDocument.load(p.buffer.slice(0));
+                    const [copied] = await single.copyPages(src, [p.pageIndex]);
+                    single.addPage(copied);
+                    const bytes = await single.save();
+                    download(bytes, `page_${p.pageIndex + 1}.pdf`);
+                }
+            } catch (e) {
+                console.error(e);
+                alert("拆分失敗");
+            }
+            showLoader(false);
+        }
+
+        function download(bytes, name) {
+            const blob = new Blob([bytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function showLoader(show, text = "正在處理 PDF...") {
+            document.getElementById('loaderText').innerText = text;
+            document.getElementById('loader').classList.toggle('hidden', !show);
+        }
+    </script>
+</body>
+</html>
