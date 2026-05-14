@@ -66,14 +66,33 @@
                     <i data-lucide="combine" class="w-4 h-4"></i> 合併與輸出
                 </h3>
                 <div class="flex flex-col gap-3">
-                    <button id="btnMergeSelected" onclick="handleMerge(true)" class="btn-ctrl bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-emerald-100 flex items-center justify-center gap-2">
-                        <i data-lucide="layers" class="w-5 h-5"></i> 合併選中項
+                    <button id="btnMergeSelected" onclick="prepareMerge(true)" class="btn-ctrl bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-emerald-100 flex items-center justify-center gap-2">
+                        <i data-lucide="layers" class="w-5 h-5"></i> 合併選取頁面
                     </button>
-                    <button id="btnMergeAll" onclick="handleMerge(false)" class="btn-ctrl bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
-                        <i data-lucide="download" class="w-5 h-5"></i> 全部直接合併
+                    <button id="btnMergeAll" onclick="prepareMerge(false)" class="btn-ctrl bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                        <i data-lucide="combine" class="w-5 h-5"></i> 全部頁面合併
                     </button>
-                    <button id="btnSplit" onclick="handleSplit()" class="btn-ctrl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 py-3 rounded-xl font-bold flex items-center justify-center gap-2">
-                        <i data-lucide="unfold-more" class="w-5 h-5"></i> 拆分為單頁文件
+                    <button id="btnKeepSingle" onclick="prepareSinglePages()" class="btn-ctrl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                        <i data-lucide="files" class="w-5 h-5"></i> 保持單頁文件
+                    </button>
+                    <div id="outputPlanStatus" class="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                        尚未建立合併結果
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <i data-lucide="download" class="w-4 h-4"></i> 輸出
+                </h3>
+                <div class="flex flex-col gap-3">
+                    <label class="text-xs font-bold text-slate-500 uppercase">輸出格式</label>
+                    <select id="outputFormat" class="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="pdf">PDF 檔</option>
+                        <option value="jpg">JPG 檔</option>
+                    </select>
+                    <button id="btnExport" onclick="handleExport()" class="btn-ctrl bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-100 flex items-center justify-center gap-2">
+                        <i data-lucide="download" class="w-5 h-5"></i> 輸出檔案
                     </button>
                 </div>
             </section>
@@ -103,6 +122,7 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         let workspacePages = [];
+        let outputPlan = null;
         const workspace = document.getElementById('workspace');
 
         lucide.createIcons();
@@ -125,6 +145,7 @@
         // 核心檔案處理邏輯
         async function handleFiles(files) {
             if (!files.length) return;
+            clearOutputPlan();
             showLoader(true, "讀取檔案中...");
             for (const file of files) {
                 try {
@@ -210,16 +231,19 @@
         function togglePage(id) {
             const p = workspacePages.find(p => p.id === id);
             p.selected = !p.selected;
+            clearOutputPlan();
             renderWorkspace();
         }
 
         function removePage(id) {
             workspacePages = workspacePages.filter(p => p.id !== id);
+            clearOutputPlan();
             renderWorkspace();
         }
 
         function clearWorkspace() {
             workspacePages = [];
+            clearOutputPlan();
             document.getElementById('fileInput').value = '';
             document.getElementById('rangeInput').value = '';
             renderWorkspace();
@@ -229,16 +253,37 @@
             const target = idx + dir;
             if (target >= 0 && target < workspacePages.length) {
                 [workspacePages[idx], workspacePages[target]] = [workspacePages[target], workspacePages[idx]];
+                clearOutputPlan();
                 renderWorkspace();
             }
+        }
+
+        function clearOutputPlan() {
+            outputPlan = null;
+            updateOutputPlanStatus();
+        }
+
+        function updateOutputPlanStatus() {
+            const status = document.getElementById('outputPlanStatus');
+            if (!status) return;
+
+            if (!outputPlan) {
+                status.textContent = '尚未建立合併結果';
+                return;
+            }
+
+            const modeLabel = outputPlan.mode === 'merged' ? '已合併為單一文件' : '保持單頁文件';
+            status.textContent = `${modeLabel}，共 ${outputPlan.pages.length} 頁，請選擇輸出格式。`;
         }
 
         function updateButtonStates() {
             const hasPages = workspacePages.length > 0;
             const hasSelected = workspacePages.some(p => p.selected);
             document.querySelectorAll('.btn-ctrl').forEach(btn => {
-                if (btn.id === 'btnMergeSelected' || btn.id === 'btnSplit') {
+                if (btn.id === 'btnMergeSelected' || btn.id === 'btnKeepSingle') {
                     btn.classList.toggle('btn-disabled', !hasSelected);
+                } else if (btn.id === 'btnExport') {
+                    btn.classList.toggle('btn-disabled', !outputPlan);
                 } else {
                     btn.classList.toggle('btn-disabled', !hasPages);
                 }
@@ -262,10 +307,125 @@
                 });
                 workspacePages.forEach(p => p.selected = set.has(p.pageIndex + 1));
             }
+            clearOutputPlan();
             renderWorkspace();
         }
 
         // --- 合併邏輯 ---
+        function prepareMerge(onlySelected) {
+            const targets = onlySelected ? workspacePages.filter(p => p.selected) : [...workspacePages];
+
+            if (targets.length === 0) {
+                return alert(workspacePages.length === 0 ? "目前沒有 PDF 頁面可以合併" : "請先選取要合併的頁面");
+            }
+
+            outputPlan = {
+                mode: 'merged',
+                pages: [...targets]
+            };
+            updateOutputPlanStatus();
+            updateButtonStates();
+        }
+
+        function prepareSinglePages() {
+            const targets = workspacePages.filter(p => p.selected);
+            if (!targets.length) return alert("請先選取要輸出的頁面");
+
+            outputPlan = {
+                mode: 'single',
+                pages: [...targets]
+            };
+            updateOutputPlanStatus();
+            updateButtonStates();
+        }
+
+        async function handleExport() {
+            if (!outputPlan || outputPlan.pages.length === 0) {
+                return alert("請先完成合併或選擇保持單頁文件");
+            }
+
+            const format = document.getElementById('outputFormat').value;
+            showLoader(true, `正在輸出 ${format.toUpperCase()}...`);
+            try {
+                if (format === 'pdf') {
+                    await exportPdf(outputPlan);
+                } else {
+                    await exportJpg(outputPlan);
+                }
+            } catch (e) {
+                console.error(e);
+                alert("輸出過程出錯，請檢查 PDF 是否有加密保護");
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        async function exportPdf(plan) {
+            if (plan.mode === 'merged') {
+                const bytes = await buildPdf(plan.pages);
+                downloadBlob(bytes, `merged_${Date.now()}.pdf`, 'application/pdf');
+                return;
+            }
+
+            for (const page of plan.pages) {
+                const bytes = await buildPdf([page]);
+                downloadBlob(bytes, `${safeFileName(page.fileName)}_page_${page.pageIndex + 1}.pdf`, 'application/pdf');
+            }
+        }
+
+        async function exportJpg(plan) {
+            for (let i = 0; i < plan.pages.length; i++) {
+                const page = plan.pages[i];
+                const blob = await renderPageAsJpg(page);
+                const prefix = plan.mode === 'merged' ? `merged_page_${i + 1}` : `${safeFileName(page.fileName)}_page_${page.pageIndex + 1}`;
+                downloadBlob(blob, `${prefix}.jpg`, 'image/jpeg');
+            }
+        }
+
+        async function buildPdf(pages) {
+            const mergedPdf = await PDFLib.PDFDocument.create();
+            const cache = {};
+            for (const p of pages) {
+                if (!cache[p.fileId]) {
+                    cache[p.fileId] = await PDFLib.PDFDocument.load(p.buffer.slice(0));
+                }
+                const sourceDoc = cache[p.fileId];
+                const [copied] = await mergedPdf.copyPages(sourceDoc, [p.pageIndex]);
+                mergedPdf.addPage(copied);
+            }
+            return mergedPdf.save();
+        }
+
+        async function renderPageAsJpg(pageInfo) {
+            const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(pageInfo.buffer.slice(0)) }).promise;
+            const page = await pdf.getPage(pageInfo.pageIndex + 1);
+            const viewport = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: context, viewport }).promise;
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+            await pdf.destroy();
+            return blob;
+        }
+
+        function safeFileName(name) {
+            return name.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|]+/g, '_') || 'page';
+        }
+
+        function downloadBlob(data, name, type) {
+            const blob = data instanceof Blob ? data : new Blob([data], { type });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
         async function handleMerge(onlySelected) {
             const targets = onlySelected ? workspacePages.filter(p => p.selected) : [...workspacePages];
             
